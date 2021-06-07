@@ -8,6 +8,7 @@
 #include <list>
 
 #include <glm/glm.hpp>
+#include <glm/gtx/norm.hpp>
 #include <glm/vec3.hpp>
 
 using namespace std;
@@ -182,6 +183,11 @@ public:
 		mPoints = new glm::vec3[mSize];
 	}
 
+	simplex(unsigned int size) : mSize(size), mLength(0)
+	{
+		mPoints = new glm::vec3[mSize];
+	}
+
 	glm::vec3 operator[] (unsigned int index)
 	{
 		return mPoints[index];
@@ -223,14 +229,25 @@ private:
 	unsigned int mLength;
 };
 
-bool GJK(shape& shapeA, shape& shapeB);
+glm::vec3 origin(0.0f);
+
+bool GJK2D(shape& shapeA, shape& shapeB);
+bool GJK3D(shape& shapeA, shape& shapeB);
+
 glm::vec3 supportFunction(shape& shapeA, shape& shapeB, glm::vec3& dir);
 
 bool handleSimplex(simplex& simplex, glm::vec3* dir);
-bool lineCase(simplex& simplex, glm::vec3* dir);
-bool triangleCase(simplex& simplex, glm::vec3* dir);
 
-bool GJK(shape& shapeA, shape& shapeB)
+bool lineCase2D(simplex& simplex, glm::vec3* dir);
+bool triangleCase2D(simplex& simplex, glm::vec3* dir);
+
+bool lineCase3D(simplex& simplex, glm::vec3* dir);
+bool triangleCase3D(simplex& simplex, glm::vec3* dir);
+bool tetrahedonCase(simplex& simplex, glm::vec3* dir);
+
+bool pointOnTriangle(shape& shape, glm::vec3& point);
+
+bool GJK2D(shape& shapeA, shape& shapeB)
 {
 	simplex simplex;
 	glm::vec3 dir;
@@ -254,6 +271,35 @@ bool GJK(shape& shapeA, shape& shapeB)
 	}
 }
 
+bool GJK3D(shape& shapeA, shape& shapeB)
+{
+	simplex simplex;
+	glm::vec3 dir;
+
+	//Start with a random direction
+	dir = glm::normalize(shapeB.mCenter - shapeA.mCenter);
+	//Append support point using the difference of the furthest point of each shape in opposing directions
+	simplex.append(supportFunction(shapeA, shapeB, dir));
+
+	dir = glm::normalize(-simplex[0]);
+
+	while (true)
+	{
+		//Generate new support point using the new direction
+		glm::vec3 vec = supportFunction(shapeA, shapeB, dir);
+		//Check if this support point passes through the origin
+		if (glm::dot(vec, dir) < 0.0f)
+			//If not, then the simplex could not contain the origin and GJK fails
+			return false;
+
+		//The support point passes the origin. Append the point to the simplex
+		simplex.append(vec);
+
+		if (handleSimplex(simplex, &dir))
+			return true;
+	}
+}
+
 glm::vec3 supportFunction(shape& shapeA, shape& shapeB, glm::vec3& dir)
 {
 	return shapeA.furthestPoint(dir) - shapeB.furthestPoint(-dir);
@@ -261,13 +307,26 @@ glm::vec3 supportFunction(shape& shapeA, shape& shapeB, glm::vec3& dir)
 
 bool handleSimplex(simplex& simplex, glm::vec3* dir)
 {
-	if (simplex.length() == 2)
-		return lineCase(simplex, dir);
+/*
+	switch (simplex.length())
+	{
+	case 2: break;
+	case 3: break;
+	default: break;
+	}
+	*/
 
-	return triangleCase(simplex, dir);
+	unsigned int length = simplex.length();
+
+	if (length == 2)
+		return lineCase2D(simplex, dir);
+	else if (length == 3)
+		return triangleCase3D(simplex, dir);
+	
+	return triangleCase2D(simplex, dir);
 }
 
-bool lineCase(simplex& simplex, glm::vec3* dir)
+bool lineCase2D(simplex& simplex, glm::vec3* dir)
 {
 	glm::vec3* A = &simplex[0];
 	glm::vec3* B = &simplex[1];
@@ -284,7 +343,7 @@ bool lineCase(simplex& simplex, glm::vec3* dir)
 	return false;
 }
 
-bool triangleCase(simplex& simplex, glm::vec3* dir)
+bool triangleCase2D(simplex& simplex, glm::vec3* dir)
 {
 	glm::vec3* A = &simplex[0];
 	glm::vec3* B = &simplex[1];
@@ -292,7 +351,7 @@ bool triangleCase(simplex& simplex, glm::vec3* dir)
 
 	glm::vec3 AB = *B - *A;
 	glm::vec3 AC = *C - *A;
-	glm::vec3 AO = glm::vec3(0.0f) - *A;
+	glm::vec3 AO = origin - *A;
 
 	glm::vec3 ABperp = glm::normalize(glm::cross(glm::cross(AC, AB), AB));
 	glm::vec3 ACperp = glm::normalize(glm::cross(glm::cross(AB, AC), AC));
@@ -313,10 +372,85 @@ bool triangleCase(simplex& simplex, glm::vec3* dir)
 	return true;
 }
 
+
+bool triangleCase3D(simplex& simplex, glm::vec3* dir)
+{
+	glm::vec3* A = &simplex[0];
+	glm::vec3* B = &simplex[1];
+	glm::vec3* C = &simplex[2];
+
+	glm::vec3 AB = *B - *A;
+	glm::vec3 AC = *C - *A;
+	glm::vec3 AO = glm::vec3(0.0f) - *A;
+
+	glm::vec3 ABperp = glm::normalize(glm::cross(glm::cross(AC, AB), AB));
+	glm::vec3 ACperp = glm::normalize(glm::cross(glm::cross(AB, AC), AC));
+
+	float area = glm::dot(AB, AC) / 2.0f;
+
+	glm::vec3 PA = origin - *A;
+	glm::vec3 PB = origin - *B;
+	glm::vec3 PC = origin - *C;
+
+	float aArea = glm::dot(PB, PC) / (2.0f * area);
+	if (aArea < 0.0f || aArea > 1.0f)
+		return false;
+
+	float bArea = glm::dot(PC, PA) / (2.0f * area);
+	if (bArea < 0.0f || bArea > 1.0f)
+		return false;
+
+	float yArea = 1 - aArea - bArea;
+	if (yArea < 0.0f || yArea > 1.0f)
+		return false;
+
+	*dir = glm::cross(AB, AC);
+	
+	return false;
+}
+
+bool tetrahedonCase(simplex& simplex, glm::vec3* dir)
+{
+	return false;
+}
+
+bool pointOnTriangle(shape& shape, glm::vec3& point)
+{
+	glm::vec3* A = &shape.mPoints[0];
+	glm::vec3* B = &shape.mPoints[1];
+	glm::vec3* C = &shape.mPoints[2];
+
+	glm::vec3 AB = *A - *B;
+	glm::vec3 AC = *A - *C;
+						 
+	float area = glm::length2(glm::cross(AB, AC)) / 2.0f;
+
+	glm::vec3 PA = *A - point;
+	glm::vec3 PB = *B - point;
+	glm::vec3 PC = *C - point;
+
+	float aArea = glm::length2(glm::cross(PB, PC)) / (2.0f * area);
+	if (aArea < 0.0f || aArea > 1.0f)
+		return false;
+
+	float bArea = glm::length2(glm::cross(PC, PA)) / (2.0f * area);
+	if (bArea < 0.0f || bArea > 1.0f)
+		return false;
+
+	float yArea = glm::length2(glm::cross(PA, PB)) / (2.0f * area);
+	if (yArea < 0.0f || yArea > 1.0f)
+		return false;
+
+	float x = (aArea + bArea + yArea);
+	cout << x << endl;
+	return (x > 0.999f && x <= 1.0f) ? true : false;
+}
+
 int main()
 {
 	srand((unsigned int)time(NULL));
 	
+	//Square
 	vector<glm::vec3> pointsA = {
 		glm::vec3(-1.0f,-1.0f, 0.0f),
 		glm::vec3( 1.0f,-1.0f, 0.0f),
@@ -324,14 +458,58 @@ int main()
 		glm::vec3(-1.0f, 1.0f, 0.0f)
 	};
 
+	//Triangle
 	vector<glm::vec3> pointsB = {
 		glm::vec3(-0.1f, -0.5f, 0.0f),
 		glm::vec3( 0.1f, -0.5f, 0.0f),
 		glm::vec3( 0.0f,  0.5f, 0.0f)
 	};
 	
+	//Cube
+	vector<glm::vec3> pointsC = {
+		glm::vec3(-1.0f,-1.0f, 1.0f),
+		glm::vec3( 1.0f,-1.0f, 1.0f),
+		glm::vec3 (1.0f, 1.0f, 1.0f),
+		glm::vec3(-1.0f, 1.0f, 1.0f),
+
+		glm::vec3(-1.0f,-1.0f,-1.0f),
+		glm::vec3( 1.0f,-1.0f,-1.0f),
+		glm::vec3( 1.0f, 1.0f,-1.0f),
+		glm::vec3(-1.0f, 1.0f,-1.0f)
+	};
+
+	//Pyramid
+	vector<glm::vec3> pointsD = {
+		glm::vec3(-0.1f,-0.5f, 1.0f),
+		glm::vec3( 0.0f, 0.5f, 1.0f),
+		glm::vec3(-0.1f,-0.5f,-1.0f),
+		glm::vec3( 0.0f, 0.5f,-1.0f),
+
+		glm::vec3( 0.1f,-0.5f, 0.0f)
+	};
+
+	vector<glm::vec3> pointsE = {
+		glm::vec3( 2.0f, 0.0f, 0.0f),
+		glm::vec3( 1.0f, 1.0f,-1.0f),
+		glm::vec3(-1.0f,-1.0f, 2.0f)
+	};
+
 	shape square(pointsA.data(), pointsA.size());
 	shape triangle(pointsB.data(), pointsB.size(), glm::vec3(1.0f, 0.1f, 0.0f));
+	shape triangle3D(pointsE.data(), pointsE.size());
+
+	shape cube(pointsC.data(), pointsC.size());
+	shape pyramid(pointsD.data(), pointsD.size(), glm::vec3(1.0f, 0.1f, 0.0f));
+
+	glm::vec3 point(0.5f, -0.9f, 0.0f);
+
+	while (point.y < -0.8f)
+	{
+		if (pointOnTriangle(triangle3D, point))
+			cout << "Collision detected\nPoint\t" << point.x << "::" << point.y << "::" << point.z << endl;
+
+		point += glm::vec3(0.0f, 0.0001f, 0.0f);
+	}
 
 	unsigned int counter = 0;
 	glm::vec3 change(0.01, 0.0f, 0.0f);
@@ -340,6 +518,7 @@ int main()
 	glm::vec3* a = new glm::vec3[8];
 	a = move(data);
 
+	/*
 	while (counter < 3000)
 	{
 		if (triangle.mCenter.x >= 2.5f || triangle.mCenter.x <= -2.5f)
@@ -353,7 +532,7 @@ int main()
 		for (unsigned int i = 0; i < square.mSize; i++)
 			cout << square.mPoints[i].x << "::" << square.mPoints[i].y << "\t";
 
-		if (GJK(square, triangle))
+		if (GJK2D(square, triangle))
 			cout << "Collision detected!!";
 
 		cout << endl;
@@ -361,6 +540,7 @@ int main()
 		triangle.translate(change);
 		counter++;
 	}
+	*/
 //	cout << (char)('A' + 1) << endl;
 
 	return 0;
