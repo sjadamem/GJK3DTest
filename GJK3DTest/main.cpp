@@ -13,6 +13,20 @@
 #include <glm/gtx/norm.hpp>
 #include <glm/vec3.hpp>
 
+struct transform
+{
+	glm::vec3 position;
+	glm::quat rotation;
+	glm::vec3 scale;
+
+	transform() : position(glm::vec3()), rotation(glm::quat()), scale(glm::vec3()) {}
+	transform(glm::vec3 pos, glm::quat rot, glm::vec3 sca) : position(pos), rotation(rot), scale(sca) {}
+	transform(glm::vec3 pos, glm::vec3 eul, glm::vec3 sca) : position(pos), rotation(eul), scale(sca) {}
+	transform(float xPos, float yPos, float zPos, float xRot, float yRot, float zRot, float xSca, float ySca, float zSca) :
+		position(glm::vec3(xPos, yPos, zPos)), rotation(glm::vec3(xRot, yRot, zRot)), scale(glm::vec3(xSca, ySca, zSca)) 
+	{}
+};
+
 struct shape
 {
 	glm::vec3* mPoints;
@@ -131,6 +145,31 @@ struct squarepyramid : pyramid
 	{ }
 };
 
+struct sphere 
+{
+	glm::vec3 origin;
+	float radius;
+
+	sphere() : origin(glm::vec3()), radius(1.0f) { }
+	sphere(glm::vec3 o, float r) : origin(o), radius(r) { }
+	~sphere() {}
+
+	void translate(glm::vec3 & trans) { origin += trans; }
+	void rotate(glm::vec3& rotate) {}
+	void scale(float scale) { radius += scale; }
+};
+
+struct capsule : sphere
+{
+	float length;
+	glm::quat rotate;
+
+	capsule() : sphere() {}
+	capsule(glm::vec3 o = glm::vec3(), float r = 1.0f, float l = 1.0f, glm::vec3 eul = glm::vec3()) : 
+		length(l), rotate(glm::quat(eul)), sphere(o, r) {}
+	~capsule() {}
+};
+
 struct simplex
 {
 public:
@@ -176,6 +215,11 @@ bool triangleCase3D(simplex& simplex, glm::vec3& dir);
 bool tetrahedronCase3D(simplex& simplex, glm::vec3& dir);
 
 bool sameDirection(const glm::vec3& dir, const glm::vec3& ao);
+
+bool sphereCollision(sphere& sphere1, sphere& sphere2);
+
+bool capsuleCollision(capsule& cap1, capsule& cap2);
+glm::vec3 closestDistance(capsule& cap1, capsule& cap2);
 
 int main()
 {
@@ -226,18 +270,13 @@ int main()
 //	pyramid* sPyramid = new squarepyramid(pointsE);
 //	pyramid* tPyramid = new trianglepyramid(pointsF, glm::vec3(0.0f, -2.0f, 0.0f));
 
-	float a = 0.0f;
-	float &b = a;
-	b = 1.0f;
-	std::cout << "A::" << a << "\tB::" << b << std::endl;
-
 	if (GJK3D(*cube1, *cube2))
 		std::cout << "Collision detected!" << std::endl;
 	
 	int counter = 0;
 	glm::vec3 change(0.01f, 0.0f, 0.0f);
 
-	
+/*
 	while (cube2->mCenter.x >= -2.5f)
 	{
 		if (cube2->mCenter.x >= 2.5f)
@@ -258,9 +297,38 @@ int main()
 
 		cube2->translate(change);
 	}
+	*/
 
 //	cout << (char)('A' + 1) << endl;
 
+	sphere* sphere1 = new sphere();
+	sphere* sphere2 = new sphere(glm::vec3(5.0f, 3.0f, 1.0f), 2);
+	float scale = 0.01f;
+	while (sphere2->radius <= 5.0f)
+	{
+		if (sphere2->origin.x >= 5.0f)
+			change = -change;
+
+		if (sphereCollision(*sphere1, *sphere2))
+		{
+			std::cout << "Collision detected!" << std::endl;
+			std::cout << "SPHERE 1\nX::" << sphere1->origin.x << "\tY::" << sphere1->origin.y << "\tZ::" << sphere1->origin.z << "\nRADIUS\t= " << sphere1->radius << std::endl;
+			std::cout << "SPHERE 2\nX::" << sphere2->origin.x << "\tY::" << sphere2->origin.y << "\tZ::" << sphere2->origin.z << "\nRADIUS\t= " << sphere2->radius << std::endl << std::endl;
+		}
+
+		sphere2->scale(scale);
+	}
+
+	glm::quat rot(glm::vec3(0.0f, 0.0f, glm::radians(30.0f)));
+	std::cout << "W::" << rot.w << "\tX::" << rot.x << "\tY::" << rot.y << "\tZ::" << rot.z << std::endl;
+	glm::vec3 dir = rot * glm::vec3(1.0f, 0.0f, 0.0f);
+	std::cout << "X::" << dir.x << "\tY::" << dir.y << "\tZ::" << dir.z << std::endl;
+	glm::vec3 point = dir * 4.0f;
+	std::cout << "X::" << point.x << "\tY::" << point.y << "\tZ::" << point.z << std::endl;
+
+	capsule* cap1 = new capsule(glm::vec3(), 1.0f, 4.0f, glm::vec3(0.0f, 0.0f, glm::radians(120.0f)));
+	capsule* cap2 = new capsule(glm::vec3(1.5f, 1.0f, 0.0f), 0.5f, 2.0f);
+	
 	return 0;
 }
 
@@ -406,4 +474,50 @@ bool tetrahedronCase3D(simplex& simplex, glm::vec3& dir)
 bool sameDirection(const glm::vec3& dir, const glm::vec3& ao)
 {
 	return glm::dot(dir, ao) > 0.0f;
+}
+
+bool sphereCollision(sphere& sphere1, sphere& sphere2)
+{
+	glm::vec3 distance = sphere2.origin - sphere1.origin;
+
+	float length = glm::length(distance);
+	float radii = (sphere1.radius + sphere2.radius);
+
+	return (length < radii) ? true : false;
+}
+
+bool capsuleCollision(capsule& cap1, capsule& cap2)
+{
+	return false;
+}
+
+glm::vec3 closestDistance(capsule& cap1, capsule& cap2)
+{
+	float longestLength = -FLT_MAX;
+	glm::vec3 distance;
+	
+	for (unsigned int i = 0; i < 3; i++)
+	{
+		for (unsigned int j = 0; j < 3; j++)
+		{
+			glm::vec3 dir = cap2.origin + cap2.rotate * glm::vec3(cap2.length * (1 - i), 0.0f, 0.0f) - cap1.origin + cap1.rotate * glm::vec3(cap1.length * (1 - j), 0.0f, 0.0f);
+			float length = glm::length(dir);
+
+			if (length > longestLength)
+			{
+				distance = dir;
+				longestLength = length;
+			}
+		}
+	}
+
+	std::vector<glm::vec3> distances = {
+		cap2.origin - cap1.origin,
+
+	};
+
+
+	
+
+	return glm::vec3();
 }
