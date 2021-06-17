@@ -15,6 +15,7 @@
 
 struct transform
 {
+public:
 	glm::vec3 position;
 	glm::quat rotation;
 	glm::vec3 scale;
@@ -164,10 +165,20 @@ struct capsule : sphere
 	float length;
 	glm::quat rotate;
 
-	capsule() : sphere() {}
-	capsule(glm::vec3 o = glm::vec3(), float r = 1.0f, float l = 1.0f, glm::vec3 eul = glm::vec3()) : 
+	capsule() : length(1.0f), rotate(glm::quat()), sphere() {}
+	capsule(float l = 1.0f, float r = 1.0f, glm::vec3 o = glm::vec3(), glm::vec3 eul = glm::vec3()) :
 		length(l), rotate(glm::quat(eul)), sphere(o, r) {}
 	~capsule() {}
+
+	glm::vec3 top()
+	{
+		return origin + ((rotate * glm::vec3(1.0f, 0.0f, 0.0f)) * length / 2.0f);
+	}
+
+	glm::vec3 bot()
+	{
+		return origin - ((rotate * glm::vec3(1.0f, 0.0f, 0.0f)) * length / 2.0f);
+	}
 };
 
 struct simplex
@@ -219,7 +230,9 @@ bool sameDirection(const glm::vec3& dir, const glm::vec3& ao);
 bool sphereCollision(sphere& sphere1, sphere& sphere2);
 
 bool capsuleCollision(capsule& cap1, capsule& cap2);
-glm::vec3 closestDistance(capsule& cap1, capsule& cap2);
+glm::vec3 closestPointOnLineSegment(glm::vec3& A, glm::vec3& B, glm::vec3& point);
+
+float saturate(float val);
 
 int main()
 {
@@ -319,16 +332,28 @@ int main()
 		sphere2->scale(scale);
 	}
 
-	glm::quat rot(glm::vec3(0.0f, 0.0f, glm::radians(30.0f)));
+	glm::quat rot(glm::vec3(0.0f, 0.0f, glm::radians(135.0f)));
 	std::cout << "W::" << rot.w << "\tX::" << rot.x << "\tY::" << rot.y << "\tZ::" << rot.z << std::endl;
+	
+	glm::vec3 eul = glm::eulerAngles(rot);
+	std::cout << "X::" << eul.x << "\tY::" << eul.y << "\tZ::" << eul.z << std::endl;
+	
 	glm::vec3 dir = rot * glm::vec3(1.0f, 0.0f, 0.0f);
 	std::cout << "X::" << dir.x << "\tY::" << dir.y << "\tZ::" << dir.z << std::endl;
+	
 	glm::vec3 point = dir * 4.0f;
 	std::cout << "X::" << point.x << "\tY::" << point.y << "\tZ::" << point.z << std::endl;
 
-	capsule* cap1 = new capsule(glm::vec3(), 1.0f, 4.0f, glm::vec3(0.0f, 0.0f, glm::radians(120.0f)));
-	capsule* cap2 = new capsule(glm::vec3(1.5f, 1.0f, 0.0f), 0.5f, 2.0f);
-	
+	capsule* cap1 = new capsule(3.0f, 0.5f, glm::vec3(), glm::vec3(0.0f, 0.0f, glm::radians(90.0f)));
+	capsule* cap2 = new capsule(2.0f, 0.5f, glm::vec3(1.5f, -0.5f, 0.0f), glm::vec3(0.0f, 0.0f, glm::radians(135.0f)));
+	glm::vec3 aTop = cap1->top();
+	glm::vec3 aBot = cap1->bot();
+	glm::vec3 bTop = cap2->top();
+	glm::vec3 bBot = cap2->bot();
+
+	if (capsuleCollision(*cap1, *cap2))
+		std::cout << "Capsule collision detected!" << std::endl;
+
 	return 0;
 }
 
@@ -486,38 +511,47 @@ bool sphereCollision(sphere& sphere1, sphere& sphere2)
 	return (length < radii) ? true : false;
 }
 
-bool capsuleCollision(capsule& cap1, capsule& cap2)
+bool capsuleCollision(capsule& capA, capsule& capB)
 {
-	return false;
+	glm::vec3 aTop = capA.top();
+	glm::vec3 aBot = capA.bot();
+	glm::vec3 bTop = capB.top();
+	glm::vec3 bBot = capB.bot();
+
+	glm::vec3 v0 = bBot - aBot;
+	glm::vec3 v1 = bTop - aBot;
+	glm::vec3 v2 = bBot - aTop;
+	glm::vec3 v3 = bTop - aTop;
+
+	float d0 = glm::length2(v0);
+	float d1 = glm::length2(v1);
+	float d2 = glm::length2(v2);
+	float d3 = glm::length2(v3);
+
+	glm::vec3 bestA;
+	if (d2 < d0 || d2 < d1 || d3 < d0 || d3 < d1)
+		bestA = aTop;
+	else
+		bestA = aBot;
+
+	glm::vec3 bestB = closestPointOnLineSegment(bBot, bTop, bestA);
+	bestA = closestPointOnLineSegment(aBot, aTop, bestB);
+
+	sphere* s1 = new sphere(bestA, capA.radius);
+	sphere* s2 = new sphere(bestB, capB.radius);
+
+	return sphereCollision(*s1, *s2);
 }
 
-glm::vec3 closestDistance(capsule& cap1, capsule& cap2)
+glm::vec3 closestPointOnLineSegment(glm::vec3& A, glm::vec3& B, glm::vec3& point)
 {
-	float longestLength = -FLT_MAX;
-	glm::vec3 distance;
-	
-	for (unsigned int i = 0; i < 3; i++)
-	{
-		for (unsigned int j = 0; j < 3; j++)
-		{
-			glm::vec3 dir = cap2.origin + cap2.rotate * glm::vec3(cap2.length * (1 - i), 0.0f, 0.0f) - cap1.origin + cap1.rotate * glm::vec3(cap1.length * (1 - j), 0.0f, 0.0f);
-			float length = glm::length(dir);
+	glm::vec3 AB = B - A;
+	float t = glm::dot(point - A, AB) / glm::length2(AB);
 
-			if (length > longestLength)
-			{
-				distance = dir;
-				longestLength = length;
-			}
-		}
-	}
+	return A + saturate(t) * AB;
+}
 
-	std::vector<glm::vec3> distances = {
-		cap2.origin - cap1.origin,
-
-	};
-
-
-	
-
-	return glm::vec3();
+float saturate(float val)
+{
+	return glm::min(glm::max(val, 0.0f), 1.0f);
 }
