@@ -198,6 +198,22 @@ struct capsule : shape3D
 	}
 };
 
+struct convexhull : shape3D
+{
+	std::vector<glm::vec3> points;
+
+	convexhull(glm::vec3* p) : shape3D()
+	{
+		checkIfConvex(p);
+	}
+
+	bool checkIfConvex(glm::vec3* p)
+	{
+
+		return true;
+	}
+};
+
 struct simplex
 {
 public:
@@ -244,14 +260,14 @@ bool tetrahedronCase3D(simplex& simplex, glm::vec3& dir);
 
 bool sameDirection(const glm::vec3& dir, const glm::vec3& ao);
 
-bool BoxBoxCollision		(box& box1,		box& box2);
+bool AABBAABBCollision		(box& box1,		box& box2);
 
 bool SphereSphereCollision	(sphere& sph1,	sphere& sph2);
-bool SphereBoxCollision		(sphere& sph,	box& box);
+bool SphereAABBCollision	(sphere& sph,	box& box);
 
 bool CapsuleCapsuleCollision(capsule& cap1,	capsule& cap2);
 bool CapsuleSphereCollision	(capsule& cap,	sphere& sph);
-bool CapsuleBoxCollision	(capsule& cap,	box& box);
+bool CapsuleAABBCollision	(capsule& cap,	box& box);
 
 
 glm::vec3 closestPointOnLineSegment(glm::vec3& A, glm::vec3& B, glm::vec3& point);
@@ -263,33 +279,64 @@ int main()
 	srand((unsigned int)time(NULL));
 
 	//Triangle
-	std::vector<glm::vec3> pointsB = {
-		glm::vec3(-0.1f, -0.5f, 0.0f),
-		glm::vec3( 0.1f, -0.5f, 0.0f),
-		glm::vec3( 0.0f,  0.5f, 0.0f)
+	glm::vec3 points[] = {
+		glm::vec3( 0.f, -1.f,  0.f),
+
+		glm::vec3( 0.f,  0.f,  1.f),
+		glm::vec3( 1.f,  0.f,  0.f),
+		glm::vec3( 0.f,  0.f, -1.f),
+		glm::vec3(-1.f,  0.f,  0.f),
+		
+		glm::vec3( 0.f,  1.f,  1.f),
+		glm::vec3( 1.f,  1.f,  1.f),
+		glm::vec3( 0.f,  1.f, -1.f),
+		glm::vec3(-1.f,  1.f,  1.f),
+		
+		glm::vec3( 0.f,  2.f,  0.f)
+	};
+
+	unsigned int indices[] = {
+		0, 2, 1,
+		0, 3, 2,
+		0, 4, 3,
+		0, 1, 4,
+
+		1, 2, 6,
+		1, 6, 5,
+		2, 3, 6,
+		3, 7, 6,
+		3, 4, 7,
+		4, 8, 7,
+		4, 1, 8,
+		1, 5, 8,
+		
+		9, 5, 6,
+		9, 6, 7,
+		9, 7, 8,
+		9, 8, 5
 	};
 
 //	box* b1 = new box(glm::vec3(1.f));
 //	box* b2 = new box(glm::vec3(2.f, 1.f, 1.f));
 	sphere* s1 = new sphere(glm::vec3(1.f, 0.f, 0.f));
-//	sphere* s2 = new sphere(glm::vec3(3.f, 0.f, 0.0f), 3.f);
+	sphere* s2 = new sphere(glm::vec3(3.f, 0.f, 0.0f), 3.f);
 	capsule* c1 = new capsule(2.f, 1.f, transform(glm::vec3(0.f, -2.f, 0.f)));
-//	capsule* c2 = new capsule(5.f, 2.f, transform(glm::vec3(0.f), glm::vec3(0.f, 0.f, 90.f)));
+	capsule* c2 = new capsule(5.f, 2.f, transform(glm::vec3(0.f), glm::vec3(0.f, 0.f, 90.f)));
 
 	//WORKING
-//	if (CapsuleCapsuleCollision(*c1, *c2))
-//		std::cout << "COLLISION DETECTED::Capsule 1, Capusle 2" << std::endl << std::endl;
+	if (CapsuleCapsuleCollision(*c1, *c2))
+		std::cout << "COLLISION DETECTED::Capsule 1, Capusle 2" << std::endl << std::endl;
 
 	//WORKING
-//	if (CapsuleSphereCollision(*c1, *s1))
-//		std::cout << "COLLISION DETECTED::Capsule 1, Sphere 1" << std::endl << std::endl;
+	if (CapsuleSphereCollision(*c1, *s1))
+		std::cout << "COLLISION DETECTED::Capsule 1, Sphere 1" << std::endl << std::endl;
 
 	//WORKING
-//	if (SphereSphereCollision(*s1, *s2))
-//		std::cout << "COLLISION DETECTED::Sphere 1, Sphere 2" << std::endl << std::endl;
+	if (SphereSphereCollision(*s1, *s2))
+		std::cout << "COLLISION DETECTED::Sphere 1, Sphere 2" << std::endl << std::endl;
 
 	//WORKING
-//	if (SphereBoxCollision(*s1, *b1))
+//	if (SphereAABBCollision(*s1, *b1))
 //		std::cout << "COLLISION DETECTED::Sphere 1, Box 1" << std::endl << std::endl;
 
 	return 0;
@@ -449,7 +496,7 @@ bool SphereSphereCollision(sphere& sphere1, sphere& sphere2)
 	return (length < radii) ? true : false;
 }
 
-bool SphereBoxCollision(sphere& sphere, box& box)
+bool SphereAABBCollision(sphere& sphere, box& box)
 {
 	float sq = 0;
 
